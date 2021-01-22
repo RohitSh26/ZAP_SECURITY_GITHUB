@@ -1,0 +1,158 @@
+{
+	"$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"spiderTime": {
+			"type": "int",
+			"defaultValue": 1,
+			"minValue": 1,
+			"maxValue": 15,
+			"metadata": {
+				"description": "How long to spend spidering the site, in minutes"
+			}
+		},
+		"target": {
+			"type": "string",
+			"defaultValue": "https://zapsecurity.azurewebsites.net",
+			"metadata": {
+				"description": "The name of the website to scan, starting with HTTP/HTTPS"
+			}
+		}
+	},
+	"variables": {
+		"accountSasProperties": {
+			"signedServices": "b",
+			"signedPermission": "rw",
+			"signedProtocol": "https",
+			"signedStart": "2019-01-01T11:11:11Z",
+			"signedExpiry": "2029-01-01T11:11:11Z",
+			"signedResourceTypes": "o",
+			"keyToSign": "key1"
+		},
+		"blobContainerName": "reports",
+		"cmdDirMakeOutput": "mkdir output",
+		"cmdDirSymlinkWrk": "ln -s output wrk",
+		"cmdPYTHON": "python /zap/end2end.py",
+		"cmdWgetPutReport": "[concat('wget --method=PUT --header=\"x-ms-blob-type: BlockBlob\" --body-file=output/', variables('reportName'), ' \"https://', variables('storageAccountName'),'.blob.core.windows.net/', variables('blobContainerName'), '/', variables('reportName'), '?')]",
+		"cmdZAPCLIOPEN": "[concat('zap-cli open-url ', parameters('target'))]",
+		"cmdZAPCLIQuickScan": "[concat('zap-cli -p 8080 -v quick-scan ', parameters('target'))]",
+		"cmdZAPCLIReport": "zap-cli report -o ./output/owasp-report.xml -f xml",
+		"cmdZapScan": "[concat('/zap/zap-baseline.py -t ', parameters('target'), ' -d -m ', parameters('spiderTime'), ' -x ', variables('reportName'))]",
+		"cmdZapStart": "zap.sh -daemon -host 0.0.0.0 -port 8080 -config api.addrs.addr.name=.* -config api.addrs.addr.regex=true -config api.disablekey=true",
+		"containerGroupName": "zapcontainer",
+		"containerName": "zap",
+		"cpuCores": "1.0",
+		"image": "rsharma26/zapsecurity",
+		"memoryInGb": "1.5",
+		"reportName": "owasp-report.xml",
+		"storageAccountName": "[uniquestring(resourceGroup().id)]"
+	},
+	"resources": [{
+			"name": "[variables('containerGroupName')]",
+			"type": "Microsoft.ContainerInstance/containerGroups",
+			"apiVersion": "2018-02-01-preview",
+			"location": "[resourceGroup().location]",
+			"dependsOn": [
+				"[concat('Microsoft.Storage/storageAccounts/', variables('storageAccountName'))]"
+			],
+			"properties": {
+				"containers": [{
+					"name": "[variables('containerName')]",
+					"properties": {
+						"image": "[variables('image')]",
+						"command": [
+							"/bin/bash",
+							"-c",
+							"[concat('($ZAPCOMMAND) & $MKDIROUTPUT && $SYMLINKWRK && sleep 30 && $ZAPCLIOPEN && $ZAPCLIQuickScan && $ZAPPYTHON && $ZAPCLIReport; sleep 10 ; ', variables('cmdWgetPutReport'), listAccountSas(variables('storageAccountName'), '2018-02-01', variables('accountSasProperties')).accountSasToken, '\"')]"
+						],
+						"environmentVariables": [{
+								"name": "ZAPCOMMAND",
+								"value": "[variables('cmdZapStart')]"
+							},
+							{
+								"name": "MKDIROUTPUT",
+								"value": "[variables('cmdDirMakeOutput')]"
+							},
+							{
+								"name": "SYMLINKWRK",
+								"value": "[variables('cmdDirSymlinkWrk')]"
+							},
+							{
+								"name": "ZAPCLIOPEN",
+								"value": "[variables('cmdZAPCLIOPEN')]"
+							},
+							{
+								"name": "ZAPCLIQuickScan",
+								"value": "[variables('cmdZAPCLIQuickScan')]"
+							},
+							{
+								"name": "ZAPCLIReport",
+								"value": "[variables('cmdZAPCLIReport')]"
+							},
+							{
+								"name": "ZAPPYTHON",
+								"value": "[variables('cmdPYTHON')]"
+							},
+							{
+								"name": "SCAN",
+								"value": "[variables('cmdZapScan')]"
+							},
+							{
+								"name": "PUTREPORT",
+								"value": "[variables('cmdWgetPutReport')]"
+							}
+						],
+						"resources": {
+							"requests": {
+								"cpu": "[variables('cpuCores')]",
+								"memoryInGb": "[variables('memoryInGb')]"
+							}
+						}
+					}
+				}],
+				"restartPolicy": "Never",
+				"osType": "Linux"
+			}
+		},
+		{
+			"type": "Microsoft.Storage/storageAccounts",
+			"name": "[variables('storageAccountName')]",
+			"apiVersion": "2018-02-01",
+			"location": "[resourceGroup().location]",
+			"sku": {
+				"name": "Standard_LRS"
+			},
+			"kind": "StorageV2",
+			"properties": {},
+			"resources": [{
+				"type": "blobServices/containers",
+				"apiVersion": "2018-03-01-preview",
+				"name": "[concat('default/', variables('blobContainerName'))]",
+				"dependsOn": [
+					"[variables('storageAccountName')]"
+				],
+				"properties": {
+					"publicAccess": "None"
+				}
+			}]
+		}
+	],
+	"outputs": {
+		"reportStorageAccount": {
+			"type": "string",
+			"value": "[variables('storageAccountName')]"
+		},
+		"reportBlobContainer": {
+			"type": "string",
+			"value": "[variables('blobContainerName')]"
+		},
+		"reportFilename": {
+			"type": "string",
+			"value": "[variables('reportName')]"
+		},
+		"reportSasToken": {
+			"type": "string",
+			"value": "[listAccountSas(variables('storageAccountName'), '2018-02-01', variables('accountSasProperties')).accountSasToken]"
+		}
+	}
+}

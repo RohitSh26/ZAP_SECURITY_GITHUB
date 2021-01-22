@@ -1,0 +1,48 @@
+# ASP.NET Core (.NET Framework)
+# Build and test ASP.NET Core projects targeting the full .NET Framework.
+# Add steps that publish symbols, save build artifacts, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/languages/dotnet-core
+
+trigger:
+- main
+
+pool:
+  vmImage: 'windows-latest'
+
+variables:
+  solution: '**/*.sln'
+  buildPlatform: 'Any CPU'
+  buildConfiguration: 'Release'
+
+steps:
+- task: NuGetToolInstaller@1
+
+- task: NuGetCommand@2
+  inputs:
+    restoreSolution: '$(solution)'
+
+- task: VSBuild@1
+  inputs:
+    solution: '$(solution)'
+    msbuildArgs: '/p:DeployOnBuild=true /p:WebPublishMethod=Package /p:PackageAsSingleFile=true /p:SkipInvalidConfigurations=true /p:DesktopBuildPackageLocation="$(build.artifactStagingDirectory)\WebApp.zip" /p:DeployIisAppPath="Default Web Site"'
+    platform: '$(buildPlatform)'
+    configuration: '$(buildConfiguration)'
+
+- task: VSTest@2
+  inputs:
+    platform: '$(buildPlatform)'
+    configuration: '$(buildConfiguration)'
+
+- task: AzureResourceManagerTemplateDeployment@3
+  inputs:
+    deploymentScope: 'Resource Group'
+    azureResourceManagerConnection: 'Dev (323a43fb-f99e-407d-9896-1e76ffc916a1)'
+    subscriptionId: '323a43fb-f99e-407d-9896-1e76ffc916a1'
+    action: 'Create Or Update Resource Group'
+    resourceGroupName: 'zapsecurity-rg'
+    location: 'East US 2'
+    templateLocation: 'URL of the file'
+    csmFileLink: 'https://dev.azure.com/irohitsh/_git/ZAPSecurity?path=%2Fowasp-azure-arm%2Fazuredeploy.json&version=GBmaster'
+    overrideParameters: '-target $(target)'
+    deploymentMode: 'Incremental'
+    deploymentOutputs: 'owaspResult'
